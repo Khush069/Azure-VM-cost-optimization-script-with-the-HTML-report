@@ -1,0 +1,117 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20251227022241
+Username: KHUSHBOO06\khush
+RunAs User: KHUSHBOO06\khush
+Configuration Name: 
+Machine: KHUSHBOO06 (Microsoft Windows NT 10.0.26200.0)
+Host Application: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+Process ID: 21168
+PSVersion: 5.1.26100.7462
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.7462
+BuildVersion: 10.0.26100.7462
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+Transcript started, output file is C:\Users\khush\Desktop\VM_Cost_Optimization_Logs\VM_Cost_Optimization_Log.txt
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> # Connect to Azure
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> Write-Output "Connecting to Azure subscription: $subscriptionId"
+Connecting to Azure subscription: 3f51e757-9bd9-42e5-a6b6-e290cdd71dac
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> Connect-AzAccount | Out-Null
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> Select-AzSubscription -SubscriptionId $subscriptionId | Out-Null
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> # Get all VMs in the resource group
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> $vmList = Get-AzVM -ResourceGroupName $resourceGroup
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> Write-Output "Total VMs found in $resourceGroup: $($vmList.Count)"
+At line:1 char:34
++ Write-Output "Total VMs found in $resourceGroup: $($vmList.Count)"
++                                  ~~~~~~~~~~~~~~~
+Variable reference is not valid. ':' was not followed by a valid variable name character. Consider using ${} to delimit the name.
+At line:1 char:34
++ Write-Output "Total VMs found in $resourceGroup: $($vmList.Count)"
++                                  ~~~~~~~~~~~~~~~
+Variable reference is not valid. ':' was not followed by a valid variable name character. Consider using ${} to delimit the name.
+    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : InvalidVariableReferenceWithDrive
+
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> # Array to store results
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> $results = @()
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> foreach ($vm in $vmList) {
+    try {
+        # Get VM status
+        $status = (Get-AzVM -ResourceGroupName $resourceGroup -Name $vm.Name -Status).Statuses |
+                  Where-Object {$_.Code -like "PowerState/*"} |
+                  Select-Object -ExpandProperty DisplayStatus
+
+        if ($status -eq "VM running") {
+            # Stop/Deallocate VM asynchronously
+            Stop-AzVM -Name $vm.Name -ResourceGroupName $resourceGroup -Force -AsJob
+            $action = "Stop/Deallocate initiated"
+            $estimatedSaving = $costPerHour
+        } else {
+            $action = "No action needed"
+            $estimatedSaving = 0
+        }
+
+        # Capture result
+        $results += [PSCustomObject]@{
+            "VM Name" = $vm.Name
+            "Status"  = $status
+            "Action"  = $action
+            "Estimated Hourly Savings ($)" = $estimatedSaving
+        }
+
+        Write-Output "Processed VM: $($vm.Name) - Status: $status - Action: $action"
+
+    } catch {
+        $errorMessage = $_.Exception.Message
+        Write-Output "Error processing VM $($vm.Name): $errorMessage"
+        # Log failed VM
+        $results += [PSCustomObject]@{
+            "VM Name" = $vm.Name
+            "Status"  = "Error"
+            "Action"  = $errorMessage
+            "Estimated Hourly Savings ($)" = 0
+        }
+    }
+}
+
+Id     Name            PSJobTypeName   State         HasMoreData     Location             Command
+--     ----            -------------   -----         -----------     --------             -------
+11     Long Running... AzureLongRun... Running       True            localhost            Stop-AzVM
+Processed VM: vm1 - Status: VM running - Action: Stop/Deallocate initiated
+12     Long Running... AzureLongRun... Running       True            localhost            Stop-AzVM
+Processed VM: vm2 - Status: VM running - Action: Stop/Deallocate initiated
+
+
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> # Calculate total savings
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> $totalSavings = ($results | Measure-Object "Estimated Hourly Savings ($)" -Sum).Sum
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> # Export to CSV
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> $results | Export-Csv -Path $csvFile -NoTypeInformation
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> Write-Output "CSV report saved at: $csvFile"
+CSV report saved at: C:\Users\khush\Desktop\VM_Cost_Optimization_Logs\VM_Cost_Optimization_Report.csv
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> # Export to HTML
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> $results | ConvertTo-Html -Property "VM Name","Status","Action","Estimated Hourly Savings ($)" `
+    -Title "Azure VM Cost Optimization Report" `
+    -PreContent "<h1>Azure VM Cost Optimization Summary</h1>" `
+    -PostContent "<p>Total Estimated Hourly Savings: $$totalSavings</p><p>Report generated on: $(Get-Date -Format 'yyyy-MM-dd HH:mm')</p>" `
+    | Out-File $htmlFile
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> Write-Output "HTML report saved at: $htmlFile"
+HTML report saved at: C:\Users\khush\Desktop\VM_Cost_Optimization_Logs\VM_Cost_Optimization_Report.html
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> # Optional: Display table in console
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> $results | Format-Table -AutoSize
+
+VM Name Status     Action                    Estimated Hourly Savings ($)
+------- ------     ------                    ----------------------------
+vm1     VM running Stop/Deallocate initiated                          0.1
+vm2     VM running Stop/Deallocate initiated                          0.1
+
+
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> # Stop logging
+PS C:\Users\khush\OneDrive\Desktop\Terraformazure\multiple_VM_Deployment> Stop-Transcript
+**********************
+Windows PowerShell transcript end
+End time: 20251227022257
+**********************

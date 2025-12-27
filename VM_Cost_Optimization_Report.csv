@@ -1,0 +1,3 @@
+"VM Name","Status","Action","Estimated Hourly Savings ($)"
+"vm1","VM running","Stop/Deallocate initiated","0.1"
+"vm2","VM running","Stop/Deallocate initiated","0.1"
