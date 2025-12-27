@@ -1,0 +1,132 @@
+# -------------------------------------------------
+# Azure VM Cost Optimization Script (Enhanced)
+# -------------------------------------------------
+
+# ------------------------------
+# Parameters
+# ------------------------------
+$subscriptionId = "3f51e757-9bd9-42e5-a6b6-e290cdd71dac"
+$resourceGroup  = "rg-multiple-vms"
+$logFolder      = "$env:USERPROFILE\Desktop\VM_Cost_Optimization_Logs"
+$costPerHour    = 0.10   # Estimated hourly VM cost
+
+# ------------------------------
+# Create Log Folder
+# ------------------------------
+if (-not (Test-Path $logFolder)) {
+    New-Item -Path $logFolder -ItemType Directory
+}
+
+# ------------------------------
+# Log File Paths
+# ------------------------------
+$htmlFile = Join-Path $logFolder "VM_Cost_Optimization_Report.html"
+$csvFile  = Join-Path $logFolder "VM_Cost_Optimization_Report.csv"
+$txtLog   = Join-Path $logFolder "VM_Cost_Optimization_Log.txt"
+
+# ------------------------------
+# Start Transcript Logging
+# ------------------------------
+Start-Transcript -Path $txtLog -Append
+
+# ------------------------------
+# Connect to Azure
+# ------------------------------
+Write-Output "Connecting to Azure subscription: $subscriptionId"
+Connect-AzAccount | Out-Null
+Select-AzSubscription -SubscriptionId $subscriptionId | Out-Null
+
+# ------------------------------
+# Fetch VMs
+# ------------------------------
+$vmList = Get-AzVM -ResourceGroupName $resourceGroup
+Write-Output "Total VMs found in $resourceGroup: $($vmList.Count)"
+
+# ------------------------------
+# Result Collection
+# ------------------------------
+$results = @()
+
+foreach ($vm in $vmList) {
+    try {
+        # Get VM Power State
+        $status = (
+            Get-AzVM -ResourceGroupName $resourceGroup -Name $vm.Name -Status
+        ).Statuses |
+        Where-Object { $_.Code -like "PowerState/*" } |
+        Select-Object -ExpandProperty DisplayStatus
+
+        if ($status -eq "VM running") {
+            Stop-AzVM -Name $vm.Name `
+                      -ResourceGroupName $resourceGroup `
+                      -Force `
+                      -AsJob
+
+            $action           = "Stop/Deallocate initiated"
+            $estimatedSaving  = $costPerHour
+        }
+        else {
+            $action          = "No action needed"
+            $estimatedSaving = 0
+        }
+
+        # Store VM Result
+        $results += [PSCustomObject]@{
+            "VM Name"                    = $vm.Name
+            "Status"                     = $status
+            "Action"                     = $action
+            "Estimated Hourly Savings ($)" = $estimatedSaving
+        }
+
+        Write-Output "Processed VM: $($vm.Name) | Status: $status | Action: $action"
+    }
+    catch {
+        $errorMessage = $_.Exception.Message
+
+        Write-Output "Error processing VM $($vm.Name): $errorMessage"
+
+        $results += [PSCustomObject]@{
+            "VM Name"                    = $vm.Name
+            "Status"                     = "Error"
+            "Action"                     = $errorMessage
+            "Estimated Hourly Savings ($)" = 0
+        }
+    }
+}
+
+# ------------------------------
+# Calculate Total Savings
+# ------------------------------
+$totalSavings = (
+    $results | Measure-Object "Estimated Hourly Savings ($)" -Sum
+).Sum
+
+# ------------------------------
+# Export Reports
+# ------------------------------
+
+# CSV Report
+$results | Export-Csv -Path $csvFile -NoTypeInformation
+Write-Output "CSV report saved at: $csvFile"
+
+# HTML Report
+$results | ConvertTo-Html `
+    -Property "VM Name","Status","Action","Estimated Hourly Savings ($)" `
+    -Title "Azure VM Cost Optimization Report" `
+    -PreContent "<h1>Azure VM Cost Optimization Summary</h1>" `
+    -PostContent "<p>Total Estimated Hourly Savings: $$totalSavings</p>
+                  <p>Report generated on: $(Get-Date -Format 'yyyy-MM-dd HH:mm')</p>" |
+    Out-File $htmlFile
+
+Write-Output "HTML report saved at: $htmlFile"
+
+# ------------------------------
+# Display Output in Console
+# ------------------------------
+$results | Format-Table -AutoSize
+
+# ------------------------------
+# Stop Logging
+# ------------------------------
+Stop-Transcript
+Write-Output "PowerShell script completed successfully."
